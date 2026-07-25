@@ -1,0 +1,60 @@
+body{
+  font-family:Arial;
+  background:#f4f4f4;
+}
+
+.header{
+
+  background:#2c3e50;
+
+  color:white;
+
+  padding:20px;
+
+  display:flex;
+
+  justify-content:space-between;
+
+  align-items:center;
+
+}
+
+nav a{
+
+  color:white;
+
+  margin:10px;
+
+  text-decoration:none;
+
+}
+
+.card{
+
+  background:white;
+
+  margin:20px;
+
+  padding:20px;
+
+  border-radius:10px;
+
+  box-shadow:0 2px 6px gray;
+
+}
+
+button{
+
+  padding:10px;
+
+  margin-top:10px;
+
+}
+
+footer{
+
+  margin-top:30px;
+
+  text-align:center;
+
+}
