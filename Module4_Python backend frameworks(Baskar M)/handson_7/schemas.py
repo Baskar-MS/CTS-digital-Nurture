@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel,EmailStr
 from typing import Optional
 
 
@@ -76,3 +76,19 @@ class EnrollmentResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str

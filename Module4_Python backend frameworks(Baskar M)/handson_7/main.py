@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import (
     FastAPI,
     Depends,
@@ -12,7 +13,13 @@ from sqlalchemy import select
 from typing import Optional
 
 from database import engine, Base, get_db
-from models import Course, Student, Enrollment
+from models import Course, Student, Enrollment,User
+from security import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    get_current_user
+)
 
 from schemas import (
     CourseCreate,
@@ -23,7 +30,10 @@ from schemas import (
     StudentUpdate,
     StudentResponse,
     EnrollmentCreate,
-    EnrollmentResponse  
+    EnrollmentResponse,
+    UserRegister,
+    UserResponse,
+    UserLogin 
 )
 
 app = FastAPI(
@@ -34,6 +44,19 @@ app = FastAPI(
         "name": "Baskar M",
         "email": "baskar@example.com"
     }
+)
+
+# -----------------------------
+# CORS Configuration
+# -----------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 from fastapi.responses import JSONResponse
@@ -75,10 +98,97 @@ def send_confirmation_email(student_email: str):
 @app.get("/")
 async def root():
     return {"message": "Course Management API is running"}
+
+
+
+@app.post(
+    "/api/v1/auth/register/",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Authentication"]
+)
+async def register_user(
+    user: UserRegister,
+    db: AsyncSession = Depends(get_db)
+):
+    # Check if email already exists
+    result = await db.execute(
+        select(User).where(User.email == user.email)
+    )
+
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=409,
+            detail="Email is already registered"
+        )
+
+    # Never store plain-text passwords.
+    # bcrypt is intentionally slow, making brute-force attacks difficult.
+    hashed_password = get_password_hash(user.password)
+
+    new_user = User(
+        email=user.email,
+        hashed_password=hashed_password,
+        is_active=True
+    )
+
+    db.add(new_user)
+
+    await db.commit()
+
+    await db.refresh(new_user)
+
+    return new_user
+
+
+@app.post(
+    "/api/v1/auth/login/",
+    tags=["Authentication"]
+)
+async def login(
+    user: UserLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    # Check if user exists
+    result = await db.execute(
+        select(User).where(User.email == user.email)
+    )
+
+    db_user = result.scalar_one_or_none()
+
+    if db_user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    # Verify password
+    if not verify_password(
+        user.password,
+        db_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    # Create JWT token
+    access_token = create_access_token(
+        data={"sub": db_user.email}
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
 # API Versioning
 # URL Versioning: /api/v1/courses/ (easy to understand and test)
 # Header Versioning: Accept: application/vnd.api+json;version=1
 # Header versioning keeps URLs clean but requires clients to send custom headers.
+
 
 # -----------------------------
 # Create Course
@@ -94,6 +204,7 @@ async def root():
 async def create_course(
     response: Response,
     course: CourseCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     new_course = Course(
@@ -278,6 +389,7 @@ async def patch_course(
 )
 async def delete_course(
     course_id: int,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
 
