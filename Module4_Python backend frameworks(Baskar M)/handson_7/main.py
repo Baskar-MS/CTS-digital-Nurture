@@ -3,7 +3,8 @@ from fastapi import (
     Depends,
     HTTPException,
     status,
-    BackgroundTasks
+    BackgroundTasks,
+    Response
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,12 +17,13 @@ from models import Course, Student, Enrollment
 from schemas import (
     CourseCreate,
     CourseUpdate,
+     CoursePatch,
     CourseResponse,
     StudentCreate,
     StudentUpdate,
     StudentResponse,
     EnrollmentCreate,
-    EnrollmentResponse
+    EnrollmentResponse  
 )
 
 app = FastAPI(
@@ -34,6 +36,22 @@ app = FastAPI(
     }
 )
 
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+
+# -----------------------------
+# Custom HTTP Exception Handler
+# -----------------------------
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": "error",
+            "status_code": exc.status_code,
+            "message": exc.detail
+        }
+    )
 
 # -----------------------------
 # Create Database Tables
@@ -57,13 +75,16 @@ def send_confirmation_email(student_email: str):
 @app.get("/")
 async def root():
     return {"message": "Course Management API is running"}
-
+# API Versioning
+# URL Versioning: /api/v1/courses/ (easy to understand and test)
+# Header Versioning: Accept: application/vnd.api+json;version=1
+# Header versioning keeps URLs clean but requires clients to send custom headers.
 
 # -----------------------------
 # Create Course
 # -----------------------------
 @app.post(
-    "/api/courses/",
+    "/api/v1/courses/",
     response_model=CourseResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Courses"],
@@ -71,6 +92,7 @@ async def root():
     response_description="Returns the created course"
 )
 async def create_course(
+    response: Response,
     course: CourseCreate,
     db: AsyncSession = Depends(get_db)
 ):
@@ -84,6 +106,7 @@ async def create_course(
     db.add(new_course)
     await db.commit()
     await db.refresh(new_course)
+    response.headers["Location"] = f"/api/v1/courses/{new_course.id}/"
 
     return new_course
 
@@ -92,36 +115,56 @@ async def create_course(
 # Get All Courses
 # -----------------------------
 @app.get(
-    "/api/courses/",
-    response_model=list[CourseResponse],
+    "/api/v1/courses/",
     tags=["Courses"]
 )
 async def get_courses(
-    skip: int = 0,
-    limit: int = 10,
+    page: int = 1,
+    page_size: int = 10,
     department_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db)
 ):
-
     query = select(Course)
 
     if department_id is not None:
-        query = query.where(
-            Course.department_id == department_id
-        )
+        query = query.where(Course.department_id == department_id)
 
-    query = query.offset(skip).limit(limit)
+    # Count total results
+    total_result = await db.execute(query)
+    total_courses = len(total_result.scalars().all())
+
+    # Pagination
+    skip = (page - 1) * page_size
+
+    query = query.offset(skip).limit(page_size)
 
     result = await db.execute(query)
+    courses = result.scalars().all()
 
-    return result.scalars().all()
+    next_page = (
+        f"/api/v1/courses/?page={page + 1}&page_size={page_size}"
+        if skip + page_size < total_courses
+        else None
+    )
 
+    previous_page = (
+        f"/api/v1/courses/?page={page - 1}&page_size={page_size}"
+        if page > 1
+        else None
+    )
+
+    return {
+        "count": total_courses,
+        "next": next_page,
+        "previous": previous_page,
+        "results": courses
+    }
 
 # -----------------------------
 # Get Course by ID
 # -----------------------------
 @app.get(
-    "/api/courses/{course_id}",
+    "/api/v1/courses/{course_id}",
     response_model=CourseResponse,
     tags=["Courses"]
 )
@@ -149,7 +192,7 @@ async def get_course(
 # Update Course
 # -----------------------------
 @app.put(
-    "/api/courses/{course_id}",
+    "/api/v1/courses/{course_id}",
     response_model=CourseResponse,
     tags=["Courses"]
 )
@@ -187,13 +230,49 @@ async def update_course(
     await db.refresh(course)
 
     return course
+# -----------------------------
+# patch Course
+# -----------------------------
+
+@app.patch(
+    "/api/v1/courses/{course_id}",
+    response_model=CourseResponse,
+    tags=["Courses"]
+)
+async def patch_course(
+    course_id: int,
+    updated: CoursePatch,
+    db: AsyncSession = Depends(get_db)
+):
+
+    result = await db.execute(
+        select(Course).where(Course.id == course_id)
+    )
+
+    course = result.scalar_one_or_none()
+
+    if course is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found"
+        )
+
+    updates = updated.model_dump(exclude_unset=True)
+
+    for key, value in updates.items():
+        setattr(course, key, value)
+
+    await db.commit()
+    await db.refresh(course)
+
+    return course
 
 
 # -----------------------------
 # Delete Course
 # -----------------------------
 @app.delete(
-    "/api/courses/{course_id}",
+    "/api/v1/courses/{course_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Courses"]
 )
@@ -219,7 +298,7 @@ async def delete_course(
 
 
 @app.post(
-    "/api/students/",
+    "/api/v1/students/",
     response_model=StudentResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Students"]
@@ -244,7 +323,7 @@ async def create_student(
 
 
 @app.get(
-    "/api/students/",
+    "/api/v1/students/",
     response_model=list[StudentResponse],
     tags=["Students"]
 )
@@ -259,7 +338,7 @@ async def get_students(
     return result.scalars().all()
 
 @app.get(
-    "/api/students/{student_id}",
+    "/api/v1/students/{student_id}",
     response_model=StudentResponse,
     tags=["Students"]
 )
@@ -283,7 +362,7 @@ async def get_student(
     return student
 
 @app.put(
-    "/api/students/{student_id}",
+    "/api/v1/students/{student_id}",
     response_model=StudentResponse,
     tags=["Students"]
 )
@@ -319,7 +398,7 @@ async def update_student(
 
 
 @app.delete(
-    "/api/students/{student_id}",
+    "/api/v1/students/{student_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Students"]
 )
@@ -347,7 +426,7 @@ async def delete_student(
 
 
 @app.post(
-    "/api/enrollments/",
+    "/api/v1/enrollments/",
     response_model=EnrollmentResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Enrollments"]
@@ -402,7 +481,7 @@ async def create_enrollment(
 
 
 @app.get(
-    "/api/enrollments/",
+    "/api/v1/enrollments/",
     response_model=list[EnrollmentResponse],
     tags=["Enrollments"]
 )
@@ -417,7 +496,7 @@ async def get_enrollments(
     return result.scalars().all()
 
 @app.get(
-    "/api/enrollments/{enrollment_id}",
+    "/api/v1/enrollments/{enrollment_id}",
     response_model=EnrollmentResponse,
     tags=["Enrollments"]
 )
@@ -444,7 +523,7 @@ async def get_enrollment(
 
 
 @app.delete(
-    "/api/enrollments/{enrollment_id}",
+    "/api/v1/enrollments/{enrollment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Enrollments"]
 )
@@ -474,7 +553,7 @@ async def delete_enrollment(
 
 
 @app.get(
-    "/api/courses/{course_id}/students/",
+    "/api/v1/courses/{course_id}/students/",
     response_model=list[StudentResponse],
     tags=["Courses"]
 )

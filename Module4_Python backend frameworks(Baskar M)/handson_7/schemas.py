@@ -19,6 +19,11 @@ class CourseUpdate(BaseModel):
     credits: Optional[int] = None
     department_id: Optional[int] = None
 
+class CoursePatch(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    credits: Optional[int] = None
+    department_id: Optional[int] = None
 
 class CourseResponse(BaseModel):
     id: int
@@ -70,3 +75,4 @@ class EnrollmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
