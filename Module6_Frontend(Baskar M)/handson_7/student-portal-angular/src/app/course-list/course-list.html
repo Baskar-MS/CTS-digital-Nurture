@@ -1,0 +1,30 @@
+<h2>Course List</h2>
+
+<input
+  type="text"
+  placeholder="Search Course"
+  [(ngModel)]="searchText"
+/>
+
+<br><br>
+
+<div *ngIf="loading">
+  <h3>Loading courses...</h3>
+</div>
+
+<div *ngIf="!loading">
+
+  <div *ngIf="filteredCourses.length > 0; else noCourses">
+
+    <app-course-card
+      *ngFor="let course of filteredCourses"
+      [course]="course">
+    </app-course-card>
+
+  </div>
+
+</div>
+
+<ng-template #noCourses>
+  <h3>No courses found.</h3>
+</ng-template>
